@@ -14,20 +14,24 @@ TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 
 # Initialize OpenAI
-client = AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
+client = None
+if OPENROUTER_API_KEY:
+    client = AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
 
-# NOTE: In a serverless environment (Netlify), global variables like this 
-# are NOT persistent. The bot will "forget" the conversation after each request.
-# To fix this, you would need a database (like Redis or MongoDB).
-conversation_history = {} 
+# Global application instance
+application = None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="I'm a bot running on Netlify! (Note: I have no memory in this mode)")
 
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not client:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="OpenRouter API Key not set.")
+        return
+
     user_message = update.message.text
     
     try:
@@ -50,15 +54,25 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error: {e}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Error processing request.")
 
-# Initialize Application
-application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-application.add_handler(CommandHandler('start', start))
-application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), chat))
-
 async def handler(event, context):
     """
     Netlify Function Handler
     """
+    global application
+    
+    # Check for token inside handler to avoid import-time crashes
+    if not TELEGRAM_TOKEN:
+        return {
+            'statusCode': 500,
+            'body': 'Error: TELEGRAM_TOKEN environment variable is not set.'
+        }
+
+    # Initialize application if not already done
+    if application is None:
+        application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+        application.add_handler(CommandHandler('start', start))
+        application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), chat))
+
     try:
         if event['httpMethod'] == 'POST':
             data = json.loads(event['body'])
