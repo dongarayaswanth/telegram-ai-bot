@@ -2,3 +2,6 @@
   command = "pip install -r requirements.txt"
   functions = "netlify/functions"
   publish = "public"
+
+[functions]
+  external_node_modules = ["python-telegram-bot", "openai"]
